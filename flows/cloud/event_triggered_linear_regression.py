@@ -10,7 +10,6 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
     libraries={
         "pandas": "1.4.2",
         "pyarrow": "11.0.0",
-        "numpy": "1.21.2",
         "scikit-learn": "1.1.2",
     }
 )
@@ -22,7 +21,7 @@ class TaxiFarePrediction(FlowSpec):
         # Try to complete tasks 2 and 3 with this function doing nothing like it currently is.
         # Understand what is happening.
         # Revisit task 1 and think about what might go in this function.
-
+        df = df.dropna()
         return df
 
     @step
@@ -43,9 +42,14 @@ class TaxiFarePrediction(FlowSpec):
     def linear_model(self):
         "Fit a single variable, linear model to the data."
         from sklearn.linear_model import LinearRegression
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
 
         # TODO: Play around with the model if you are feeling it.
-        self.model = LinearRegression()
+        self.model = make_pipeline(
+            StandardScaler(),
+            LinearRegression()
+        )
 
         self.next(self.validate)
 
