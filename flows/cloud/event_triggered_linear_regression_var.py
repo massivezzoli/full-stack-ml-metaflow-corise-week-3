@@ -1,4 +1,4 @@
-from metaflow import FlowSpec, step, card, conda_base, current, Parameter, Flow, trigger
+from metaflow import FlowSpec, step, card, conda_base, current, Parameter, Flow, trigger, retry, catch, timeout
 from metaflow.cards import Markdown, Table, Image, Artifact
 
 URL = "https://outerbounds-datasets.s3.us-west-2.amazonaws.com/taxi/latest.parquet"
@@ -13,7 +13,7 @@ DATETIME_FORMAT = "%Y-%m-%d %H:%M:%S"
         "scikit-learn": "1.1.2",
     }
 )
-class TaxiFarePrediction(FlowSpec):
+class TaxiFarePredictionVar(FlowSpec):
     data_url = Parameter("data_url", default=URL)
 
     def transform_features(self, df):
@@ -21,16 +21,36 @@ class TaxiFarePrediction(FlowSpec):
         # Try to complete tasks 2 and 3 with this function doing nothing like it currently is.
         # Understand what is happening.
         # Revisit task 1 and think about what might go in this function.
-        df = df.dropna()
+        obviously_bad_data_filters = [
+            "fare_amount > 0",  # fare_amount in US Dollars
+            "trip_distance <= 100",  # trip_distance in miles
+            "trip_distance > 0",
+            "passenger_count > 0",
+            "tpep_pickup_datetime <= tpep_dropoff_datetime",
+            "total_amount > 0",
+        ]
+        df = df.query(" & ".join(obviously_bad_data_filters))
+        
+        print(df.shape)
         return df
 
+    @retry(times=3)
+    @card(type="corise")
     @step
     def start(self):
         import pandas as pd
         from sklearn.model_selection import train_test_split
 
-        self.df = self.transform_features(pd.read_parquet(self.data_url))
+        df_ = pd.read_parquet(self.data_url)
+        missing = df_.isna().sum(axis=0).to_frame()
 
+        self.df = self.transform_features(df_)
+        current.card.append(Markdown("# Taxi Fare Incoming Data"))
+        current.card.append(Markdown(f" DataFrame incoming shape:{df_.shape}"))
+        current.card.append(
+            Table.from_dataframe(missing)
+        )
+        current.card.append(Markdown(f" Clean DataFrame shape:{self.df.shape}"))
         # NOTE: we are split into training and validation set in the validation step which uses cross_val_score.
         # This is a simple/naive way to do this, and is meant to keep this example simple, to focus learning on deploying Metaflow flows.
         # In practice, you want split time series data in more sophisticated ways and run backtests.
@@ -47,7 +67,7 @@ class TaxiFarePrediction(FlowSpec):
 
         # TODO: Play around with the model if you are feeling it.
         self.model = make_pipeline(
-            #StandardScaler(),
+            StandardScaler(),
             LinearRegression()
         )
 
@@ -92,6 +112,7 @@ class TaxiFarePrediction(FlowSpec):
                 )
         return rows
 
+    @timeout(minutes=10)
     @card(type="corise")
     @step
     def validate(self):
@@ -113,4 +134,4 @@ class TaxiFarePrediction(FlowSpec):
 
 
 if __name__ == "__main__":
-    TaxiFarePrediction()
+    TaxiFarePredictionVar()
